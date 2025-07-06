@@ -4,6 +4,356 @@ import {
   __spreadValues
 } from "./chunk-WDMUDEB6.js";
 
+// node_modules/@angular/core/fesm2022/primitives/di.mjs
+var _currentInjector = void 0;
+function getCurrentInjector() {
+  return _currentInjector;
+}
+function setCurrentInjector(injector) {
+  const former = _currentInjector;
+  _currentInjector = injector;
+  return former;
+}
+var NOT_FOUND = Symbol("NotFound");
+var NotFoundError = class extends Error {
+  name = "ɵNotFound";
+  constructor(message) {
+    super(message);
+  }
+};
+function isNotFound(e) {
+  return e === NOT_FOUND || e?.name === "ɵNotFound";
+}
+
+// node_modules/@angular/core/fesm2022/signal.mjs
+function defaultEquals(a, b) {
+  return Object.is(a, b);
+}
+var activeConsumer = null;
+var inNotificationPhase = false;
+var epoch = 1;
+var postProducerCreatedFn = null;
+var SIGNAL = Symbol("SIGNAL");
+function setActiveConsumer(consumer) {
+  const prev = activeConsumer;
+  activeConsumer = consumer;
+  return prev;
+}
+function getActiveConsumer() {
+  return activeConsumer;
+}
+function isInNotificationPhase() {
+  return inNotificationPhase;
+}
+var REACTIVE_NODE = {
+  version: 0,
+  lastCleanEpoch: 0,
+  dirty: false,
+  producerNode: void 0,
+  producerLastReadVersion: void 0,
+  producerIndexOfThis: void 0,
+  nextProducerIndex: 0,
+  liveConsumerNode: void 0,
+  liveConsumerIndexOfThis: void 0,
+  consumerAllowSignalWrites: false,
+  consumerIsAlwaysLive: false,
+  kind: "unknown",
+  producerMustRecompute: () => false,
+  producerRecomputeValue: () => {
+  },
+  consumerMarkedDirty: () => {
+  },
+  consumerOnSignalRead: () => {
+  }
+};
+function producerAccessed(node) {
+  if (inNotificationPhase) {
+    throw new Error(typeof ngDevMode !== "undefined" && ngDevMode ? `Assertion error: signal read during notification phase` : "");
+  }
+  if (activeConsumer === null) {
+    return;
+  }
+  activeConsumer.consumerOnSignalRead(node);
+  const idx = activeConsumer.nextProducerIndex++;
+  assertConsumerNode(activeConsumer);
+  if (idx < activeConsumer.producerNode.length && activeConsumer.producerNode[idx] !== node) {
+    if (consumerIsLive(activeConsumer)) {
+      const staleProducer = activeConsumer.producerNode[idx];
+      producerRemoveLiveConsumerAtIndex(staleProducer, activeConsumer.producerIndexOfThis[idx]);
+    }
+  }
+  if (activeConsumer.producerNode[idx] !== node) {
+    activeConsumer.producerNode[idx] = node;
+    activeConsumer.producerIndexOfThis[idx] = consumerIsLive(activeConsumer) ? producerAddLiveConsumer(node, activeConsumer, idx) : 0;
+  }
+  activeConsumer.producerLastReadVersion[idx] = node.version;
+}
+function producerIncrementEpoch() {
+  epoch++;
+}
+function producerUpdateValueVersion(node) {
+  if (consumerIsLive(node) && !node.dirty) {
+    return;
+  }
+  if (!node.dirty && node.lastCleanEpoch === epoch) {
+    return;
+  }
+  if (!node.producerMustRecompute(node) && !consumerPollProducersForChange(node)) {
+    producerMarkClean(node);
+    return;
+  }
+  node.producerRecomputeValue(node);
+  producerMarkClean(node);
+}
+function producerNotifyConsumers(node) {
+  if (node.liveConsumerNode === void 0) {
+    return;
+  }
+  const prev = inNotificationPhase;
+  inNotificationPhase = true;
+  try {
+    for (const consumer of node.liveConsumerNode) {
+      if (!consumer.dirty) {
+        consumerMarkDirty(consumer);
+      }
+    }
+  } finally {
+    inNotificationPhase = prev;
+  }
+}
+function producerUpdatesAllowed() {
+  return activeConsumer?.consumerAllowSignalWrites !== false;
+}
+function consumerMarkDirty(node) {
+  node.dirty = true;
+  producerNotifyConsumers(node);
+  node.consumerMarkedDirty?.(node);
+}
+function producerMarkClean(node) {
+  node.dirty = false;
+  node.lastCleanEpoch = epoch;
+}
+function consumerBeforeComputation(node) {
+  node && (node.nextProducerIndex = 0);
+  return setActiveConsumer(node);
+}
+function consumerAfterComputation(node, prevConsumer) {
+  setActiveConsumer(prevConsumer);
+  if (!node || node.producerNode === void 0 || node.producerIndexOfThis === void 0 || node.producerLastReadVersion === void 0) {
+    return;
+  }
+  if (consumerIsLive(node)) {
+    for (let i = node.nextProducerIndex; i < node.producerNode.length; i++) {
+      producerRemoveLiveConsumerAtIndex(node.producerNode[i], node.producerIndexOfThis[i]);
+    }
+  }
+  while (node.producerNode.length > node.nextProducerIndex) {
+    node.producerNode.pop();
+    node.producerLastReadVersion.pop();
+    node.producerIndexOfThis.pop();
+  }
+}
+function consumerPollProducersForChange(node) {
+  assertConsumerNode(node);
+  for (let i = 0; i < node.producerNode.length; i++) {
+    const producer = node.producerNode[i];
+    const seenVersion = node.producerLastReadVersion[i];
+    if (seenVersion !== producer.version) {
+      return true;
+    }
+    producerUpdateValueVersion(producer);
+    if (seenVersion !== producer.version) {
+      return true;
+    }
+  }
+  return false;
+}
+function consumerDestroy(node) {
+  assertConsumerNode(node);
+  if (consumerIsLive(node)) {
+    for (let i = 0; i < node.producerNode.length; i++) {
+      producerRemoveLiveConsumerAtIndex(node.producerNode[i], node.producerIndexOfThis[i]);
+    }
+  }
+  node.producerNode.length = node.producerLastReadVersion.length = node.producerIndexOfThis.length = 0;
+  if (node.liveConsumerNode) {
+    node.liveConsumerNode.length = node.liveConsumerIndexOfThis.length = 0;
+  }
+}
+function producerAddLiveConsumer(node, consumer, indexOfThis) {
+  assertProducerNode(node);
+  if (node.liveConsumerNode.length === 0 && isConsumerNode(node)) {
+    for (let i = 0; i < node.producerNode.length; i++) {
+      node.producerIndexOfThis[i] = producerAddLiveConsumer(node.producerNode[i], node, i);
+    }
+  }
+  node.liveConsumerIndexOfThis.push(indexOfThis);
+  return node.liveConsumerNode.push(consumer) - 1;
+}
+function producerRemoveLiveConsumerAtIndex(node, idx) {
+  assertProducerNode(node);
+  if (typeof ngDevMode !== "undefined" && ngDevMode && idx >= node.liveConsumerNode.length) {
+    throw new Error(`Assertion error: active consumer index ${idx} is out of bounds of ${node.liveConsumerNode.length} consumers)`);
+  }
+  if (node.liveConsumerNode.length === 1 && isConsumerNode(node)) {
+    for (let i = 0; i < node.producerNode.length; i++) {
+      producerRemoveLiveConsumerAtIndex(node.producerNode[i], node.producerIndexOfThis[i]);
+    }
+  }
+  const lastIdx = node.liveConsumerNode.length - 1;
+  node.liveConsumerNode[idx] = node.liveConsumerNode[lastIdx];
+  node.liveConsumerIndexOfThis[idx] = node.liveConsumerIndexOfThis[lastIdx];
+  node.liveConsumerNode.length--;
+  node.liveConsumerIndexOfThis.length--;
+  if (idx < node.liveConsumerNode.length) {
+    const idxProducer = node.liveConsumerIndexOfThis[idx];
+    const consumer = node.liveConsumerNode[idx];
+    assertConsumerNode(consumer);
+    consumer.producerIndexOfThis[idxProducer] = idx;
+  }
+}
+function consumerIsLive(node) {
+  return node.consumerIsAlwaysLive || (node?.liveConsumerNode?.length ?? 0) > 0;
+}
+function assertConsumerNode(node) {
+  node.producerNode ??= [];
+  node.producerIndexOfThis ??= [];
+  node.producerLastReadVersion ??= [];
+}
+function assertProducerNode(node) {
+  node.liveConsumerNode ??= [];
+  node.liveConsumerIndexOfThis ??= [];
+}
+function isConsumerNode(node) {
+  return node.producerNode !== void 0;
+}
+function runPostProducerCreatedFn(node) {
+  postProducerCreatedFn?.(node);
+}
+function createComputed(computation, equal) {
+  const node = Object.create(COMPUTED_NODE);
+  node.computation = computation;
+  if (equal !== void 0) {
+    node.equal = equal;
+  }
+  const computed2 = () => {
+    producerUpdateValueVersion(node);
+    producerAccessed(node);
+    if (node.value === ERRORED) {
+      throw node.error;
+    }
+    return node.value;
+  };
+  computed2[SIGNAL] = node;
+  if (typeof ngDevMode !== "undefined" && ngDevMode) {
+    const debugName = node.debugName ? " (" + node.debugName + ")" : "";
+    computed2.toString = () => `[Computed${debugName}: ${node.value}]`;
+  }
+  runPostProducerCreatedFn(node);
+  return computed2;
+}
+var UNSET = Symbol("UNSET");
+var COMPUTING = Symbol("COMPUTING");
+var ERRORED = Symbol("ERRORED");
+var COMPUTED_NODE = (() => {
+  return __spreadProps(__spreadValues({}, REACTIVE_NODE), {
+    value: UNSET,
+    dirty: true,
+    error: null,
+    equal: defaultEquals,
+    kind: "computed",
+    producerMustRecompute(node) {
+      return node.value === UNSET || node.value === COMPUTING;
+    },
+    producerRecomputeValue(node) {
+      if (node.value === COMPUTING) {
+        throw new Error(typeof ngDevMode !== "undefined" && ngDevMode ? "Detected cycle in computations." : "");
+      }
+      const oldValue = node.value;
+      node.value = COMPUTING;
+      const prevConsumer = consumerBeforeComputation(node);
+      let newValue;
+      let wasEqual = false;
+      try {
+        newValue = node.computation();
+        setActiveConsumer(null);
+        wasEqual = oldValue !== UNSET && oldValue !== ERRORED && newValue !== ERRORED && node.equal(oldValue, newValue);
+      } catch (err) {
+        newValue = ERRORED;
+        node.error = err;
+      } finally {
+        consumerAfterComputation(node, prevConsumer);
+      }
+      if (wasEqual) {
+        node.value = oldValue;
+        return;
+      }
+      node.value = newValue;
+      node.version++;
+    }
+  });
+})();
+function defaultThrowError() {
+  throw new Error();
+}
+var throwInvalidWriteToSignalErrorFn = defaultThrowError;
+function throwInvalidWriteToSignalError(node) {
+  throwInvalidWriteToSignalErrorFn(node);
+}
+function setThrowInvalidWriteToSignalError(fn) {
+  throwInvalidWriteToSignalErrorFn = fn;
+}
+var postSignalSetFn = null;
+function createSignal(initialValue, equal) {
+  const node = Object.create(SIGNAL_NODE);
+  node.value = initialValue;
+  if (equal !== void 0) {
+    node.equal = equal;
+  }
+  const getter = () => signalGetFn(node);
+  getter[SIGNAL] = node;
+  if (typeof ngDevMode !== "undefined" && ngDevMode) {
+    const debugName = node.debugName ? " (" + node.debugName + ")" : "";
+    getter.toString = () => `[Signal${debugName}: ${node.value}]`;
+  }
+  runPostProducerCreatedFn(node);
+  const set = (newValue) => signalSetFn(node, newValue);
+  const update = (updateFn) => signalUpdateFn(node, updateFn);
+  return [getter, set, update];
+}
+function signalGetFn(node) {
+  producerAccessed(node);
+  return node.value;
+}
+function signalSetFn(node, newValue) {
+  if (!producerUpdatesAllowed()) {
+    throwInvalidWriteToSignalError(node);
+  }
+  if (!node.equal(node.value, newValue)) {
+    node.value = newValue;
+    signalValueChanged(node);
+  }
+}
+function signalUpdateFn(node, updater) {
+  if (!producerUpdatesAllowed()) {
+    throwInvalidWriteToSignalError(node);
+  }
+  signalSetFn(node, updater(node.value));
+}
+var SIGNAL_NODE = (() => {
+  return __spreadProps(__spreadValues({}, REACTIVE_NODE), {
+    equal: defaultEquals,
+    value: void 0,
+    kind: "signal"
+  });
+})();
+function signalValueChanged(node) {
+  node.version++;
+  producerIncrementEpoch();
+  producerNotifyConsumers(node);
+  postSignalSetFn?.(node);
+}
+
 // node_modules/tslib/tslib.es6.mjs
 var extendStatics = function(d, b) {
   extendStatics = Object.setPrototypeOf || { __proto__: [] } instanceof Array && function(d2, b2) {
@@ -1001,22 +1351,6 @@ var ReplaySubject = function(_super) {
   return ReplaySubject2;
 }(Subject);
 
-// node_modules/rxjs/dist/esm5/internal/util/isScheduler.js
-function isScheduler(value) {
-  return value && isFunction(value.schedule);
-}
-
-// node_modules/rxjs/dist/esm5/internal/util/args.js
-function last(arr) {
-  return arr[arr.length - 1];
-}
-function popResultSelector(args) {
-  return isFunction(last(args)) ? args.pop() : void 0;
-}
-function popScheduler(args) {
-  return isScheduler(last(args)) ? args.pop() : void 0;
-}
-
 // node_modules/rxjs/dist/esm5/internal/util/isArrayLike.js
 var isArrayLike = function(x) {
   return x && typeof x.length === "number" && typeof x !== "function";
@@ -1474,6 +1808,22 @@ function from(input, scheduler) {
   return scheduler ? scheduled(input, scheduler) : innerFrom(input);
 }
 
+// node_modules/rxjs/dist/esm5/internal/util/isScheduler.js
+function isScheduler(value) {
+  return value && isFunction(value.schedule);
+}
+
+// node_modules/rxjs/dist/esm5/internal/util/args.js
+function last(arr) {
+  return arr[arr.length - 1];
+}
+function popResultSelector(args) {
+  return isFunction(last(args)) ? args.pop() : void 0;
+}
+function popScheduler(args) {
+  return isScheduler(last(args)) ? args.pop() : void 0;
+}
+
 // node_modules/rxjs/dist/esm5/internal/observable/of.js
 function of() {
   var args = [];
@@ -1482,6 +1832,104 @@ function of() {
   }
   var scheduler = popScheduler(args);
   return from(args, scheduler);
+}
+
+// node_modules/rxjs/dist/esm5/internal/operators/map.js
+function map(project, thisArg) {
+  return operate(function(source, subscriber) {
+    var index = 0;
+    source.subscribe(createOperatorSubscriber(subscriber, function(value) {
+      subscriber.next(project.call(thisArg, value, index++));
+    }));
+  });
+}
+
+// node_modules/rxjs/dist/esm5/internal/util/argsArgArrayOrObject.js
+var isArray = Array.isArray;
+var getPrototypeOf = Object.getPrototypeOf;
+var objectProto = Object.prototype;
+var getKeys = Object.keys;
+function argsArgArrayOrObject(args) {
+  if (args.length === 1) {
+    var first_1 = args[0];
+    if (isArray(first_1)) {
+      return { args: first_1, keys: null };
+    }
+    if (isPOJO(first_1)) {
+      var keys = getKeys(first_1);
+      return {
+        args: keys.map(function(key) {
+          return first_1[key];
+        }),
+        keys
+      };
+    }
+  }
+  return { args, keys: null };
+}
+function isPOJO(obj) {
+  return obj && typeof obj === "object" && getPrototypeOf(obj) === objectProto;
+}
+
+// node_modules/rxjs/dist/esm5/internal/util/mapOneOrManyArgs.js
+var isArray2 = Array.isArray;
+function callOrApply(fn, args) {
+  return isArray2(args) ? fn.apply(void 0, __spreadArray([], __read(args))) : fn(args);
+}
+function mapOneOrManyArgs(fn) {
+  return map(function(args) {
+    return callOrApply(fn, args);
+  });
+}
+
+// node_modules/rxjs/dist/esm5/internal/util/createObject.js
+function createObject(keys, values) {
+  return keys.reduce(function(result, key, i) {
+    return result[key] = values[i], result;
+  }, {});
+}
+
+// node_modules/rxjs/dist/esm5/internal/observable/forkJoin.js
+function forkJoin() {
+  var args = [];
+  for (var _i = 0; _i < arguments.length; _i++) {
+    args[_i] = arguments[_i];
+  }
+  var resultSelector = popResultSelector(args);
+  var _a = argsArgArrayOrObject(args), sources = _a.args, keys = _a.keys;
+  var result = new Observable(function(subscriber) {
+    var length = sources.length;
+    if (!length) {
+      subscriber.complete();
+      return;
+    }
+    var values = new Array(length);
+    var remainingCompletions = length;
+    var remainingEmissions = length;
+    var _loop_1 = function(sourceIndex2) {
+      var hasValue = false;
+      innerFrom(sources[sourceIndex2]).subscribe(createOperatorSubscriber(subscriber, function(value) {
+        if (!hasValue) {
+          hasValue = true;
+          remainingEmissions--;
+        }
+        values[sourceIndex2] = value;
+      }, function() {
+        return remainingCompletions--;
+      }, void 0, function() {
+        if (!remainingCompletions || !hasValue) {
+          if (!remainingEmissions) {
+            subscriber.next(keys ? createObject(keys, values) : values);
+          }
+          subscriber.complete();
+        }
+      }));
+    };
+    for (var sourceIndex = 0; sourceIndex < length; sourceIndex++) {
+      _loop_1(sourceIndex);
+    }
+  });
+  return resultSelector ? result.pipe(mapOneOrManyArgs(resultSelector)) : result;
 }
 
 // node_modules/rxjs/dist/esm5/internal/operators/takeUntil.js
@@ -2354,7 +2802,7 @@ var ArgumentOutOfRangeError = createErrorClass(function(_super) {
 });
 
 // node_modules/rxjs/dist/esm5/internal/util/NotFoundError.js
-var NotFoundError = createErrorClass(function(_super) {
+var NotFoundError2 = createErrorClass(function(_super) {
   return function NotFoundErrorImpl(message) {
     _super(this);
     this.name = "NotFoundError";
@@ -2383,61 +2831,6 @@ var TimeoutError = createErrorClass(function(_super) {
     this.info = info;
   };
 });
-
-// node_modules/rxjs/dist/esm5/internal/operators/map.js
-function map(project, thisArg) {
-  return operate(function(source, subscriber) {
-    var index = 0;
-    source.subscribe(createOperatorSubscriber(subscriber, function(value) {
-      subscriber.next(project.call(thisArg, value, index++));
-    }));
-  });
-}
-
-// node_modules/rxjs/dist/esm5/internal/util/mapOneOrManyArgs.js
-var isArray = Array.isArray;
-function callOrApply(fn, args) {
-  return isArray(args) ? fn.apply(void 0, __spreadArray([], __read(args))) : fn(args);
-}
-function mapOneOrManyArgs(fn) {
-  return map(function(args) {
-    return callOrApply(fn, args);
-  });
-}
-
-// node_modules/rxjs/dist/esm5/internal/util/argsArgArrayOrObject.js
-var isArray2 = Array.isArray;
-var getPrototypeOf = Object.getPrototypeOf;
-var objectProto = Object.prototype;
-var getKeys = Object.keys;
-function argsArgArrayOrObject(args) {
-  if (args.length === 1) {
-    var first_1 = args[0];
-    if (isArray2(first_1)) {
-      return { args: first_1, keys: null };
-    }
-    if (isPOJO(first_1)) {
-      var keys = getKeys(first_1);
-      return {
-        args: keys.map(function(key) {
-          return first_1[key];
-        }),
-        keys
-      };
-    }
-  }
-  return { args, keys: null };
-}
-function isPOJO(obj) {
-  return obj && typeof obj === "object" && getPrototypeOf(obj) === objectProto;
-}
-
-// node_modules/rxjs/dist/esm5/internal/util/createObject.js
-function createObject(keys, values) {
-  return keys.reduce(function(result, key, i) {
-    return result[key] = values[i], result;
-  }, {});
-}
 
 // node_modules/rxjs/dist/esm5/internal/observable/combineLatest.js
 function combineLatest() {
@@ -2861,356 +3254,6 @@ function tap(observerOrNext, error, complete) {
       (_b = tapObserver.finalize) === null || _b === void 0 ? void 0 : _b.call(tapObserver);
     }));
   }) : identity;
-}
-
-// node_modules/@angular/core/fesm2022/primitives/di.mjs
-var _currentInjector = void 0;
-function getCurrentInjector() {
-  return _currentInjector;
-}
-function setCurrentInjector(injector) {
-  const former = _currentInjector;
-  _currentInjector = injector;
-  return former;
-}
-var NOT_FOUND = Symbol("NotFound");
-var NotFoundError2 = class extends Error {
-  name = "ɵNotFound";
-  constructor(message) {
-    super(message);
-  }
-};
-function isNotFound(e) {
-  return e === NOT_FOUND || e?.name === "ɵNotFound";
-}
-
-// node_modules/@angular/core/fesm2022/signal.mjs
-function defaultEquals(a, b) {
-  return Object.is(a, b);
-}
-var activeConsumer = null;
-var inNotificationPhase = false;
-var epoch = 1;
-var postProducerCreatedFn = null;
-var SIGNAL = Symbol("SIGNAL");
-function setActiveConsumer(consumer) {
-  const prev = activeConsumer;
-  activeConsumer = consumer;
-  return prev;
-}
-function getActiveConsumer() {
-  return activeConsumer;
-}
-function isInNotificationPhase() {
-  return inNotificationPhase;
-}
-var REACTIVE_NODE = {
-  version: 0,
-  lastCleanEpoch: 0,
-  dirty: false,
-  producerNode: void 0,
-  producerLastReadVersion: void 0,
-  producerIndexOfThis: void 0,
-  nextProducerIndex: 0,
-  liveConsumerNode: void 0,
-  liveConsumerIndexOfThis: void 0,
-  consumerAllowSignalWrites: false,
-  consumerIsAlwaysLive: false,
-  kind: "unknown",
-  producerMustRecompute: () => false,
-  producerRecomputeValue: () => {
-  },
-  consumerMarkedDirty: () => {
-  },
-  consumerOnSignalRead: () => {
-  }
-};
-function producerAccessed(node) {
-  if (inNotificationPhase) {
-    throw new Error(typeof ngDevMode !== "undefined" && ngDevMode ? `Assertion error: signal read during notification phase` : "");
-  }
-  if (activeConsumer === null) {
-    return;
-  }
-  activeConsumer.consumerOnSignalRead(node);
-  const idx = activeConsumer.nextProducerIndex++;
-  assertConsumerNode(activeConsumer);
-  if (idx < activeConsumer.producerNode.length && activeConsumer.producerNode[idx] !== node) {
-    if (consumerIsLive(activeConsumer)) {
-      const staleProducer = activeConsumer.producerNode[idx];
-      producerRemoveLiveConsumerAtIndex(staleProducer, activeConsumer.producerIndexOfThis[idx]);
-    }
-  }
-  if (activeConsumer.producerNode[idx] !== node) {
-    activeConsumer.producerNode[idx] = node;
-    activeConsumer.producerIndexOfThis[idx] = consumerIsLive(activeConsumer) ? producerAddLiveConsumer(node, activeConsumer, idx) : 0;
-  }
-  activeConsumer.producerLastReadVersion[idx] = node.version;
-}
-function producerIncrementEpoch() {
-  epoch++;
-}
-function producerUpdateValueVersion(node) {
-  if (consumerIsLive(node) && !node.dirty) {
-    return;
-  }
-  if (!node.dirty && node.lastCleanEpoch === epoch) {
-    return;
-  }
-  if (!node.producerMustRecompute(node) && !consumerPollProducersForChange(node)) {
-    producerMarkClean(node);
-    return;
-  }
-  node.producerRecomputeValue(node);
-  producerMarkClean(node);
-}
-function producerNotifyConsumers(node) {
-  if (node.liveConsumerNode === void 0) {
-    return;
-  }
-  const prev = inNotificationPhase;
-  inNotificationPhase = true;
-  try {
-    for (const consumer of node.liveConsumerNode) {
-      if (!consumer.dirty) {
-        consumerMarkDirty(consumer);
-      }
-    }
-  } finally {
-    inNotificationPhase = prev;
-  }
-}
-function producerUpdatesAllowed() {
-  return activeConsumer?.consumerAllowSignalWrites !== false;
-}
-function consumerMarkDirty(node) {
-  node.dirty = true;
-  producerNotifyConsumers(node);
-  node.consumerMarkedDirty?.(node);
-}
-function producerMarkClean(node) {
-  node.dirty = false;
-  node.lastCleanEpoch = epoch;
-}
-function consumerBeforeComputation(node) {
-  node && (node.nextProducerIndex = 0);
-  return setActiveConsumer(node);
-}
-function consumerAfterComputation(node, prevConsumer) {
-  setActiveConsumer(prevConsumer);
-  if (!node || node.producerNode === void 0 || node.producerIndexOfThis === void 0 || node.producerLastReadVersion === void 0) {
-    return;
-  }
-  if (consumerIsLive(node)) {
-    for (let i = node.nextProducerIndex; i < node.producerNode.length; i++) {
-      producerRemoveLiveConsumerAtIndex(node.producerNode[i], node.producerIndexOfThis[i]);
-    }
-  }
-  while (node.producerNode.length > node.nextProducerIndex) {
-    node.producerNode.pop();
-    node.producerLastReadVersion.pop();
-    node.producerIndexOfThis.pop();
-  }
-}
-function consumerPollProducersForChange(node) {
-  assertConsumerNode(node);
-  for (let i = 0; i < node.producerNode.length; i++) {
-    const producer = node.producerNode[i];
-    const seenVersion = node.producerLastReadVersion[i];
-    if (seenVersion !== producer.version) {
-      return true;
-    }
-    producerUpdateValueVersion(producer);
-    if (seenVersion !== producer.version) {
-      return true;
-    }
-  }
-  return false;
-}
-function consumerDestroy(node) {
-  assertConsumerNode(node);
-  if (consumerIsLive(node)) {
-    for (let i = 0; i < node.producerNode.length; i++) {
-      producerRemoveLiveConsumerAtIndex(node.producerNode[i], node.producerIndexOfThis[i]);
-    }
-  }
-  node.producerNode.length = node.producerLastReadVersion.length = node.producerIndexOfThis.length = 0;
-  if (node.liveConsumerNode) {
-    node.liveConsumerNode.length = node.liveConsumerIndexOfThis.length = 0;
-  }
-}
-function producerAddLiveConsumer(node, consumer, indexOfThis) {
-  assertProducerNode(node);
-  if (node.liveConsumerNode.length === 0 && isConsumerNode(node)) {
-    for (let i = 0; i < node.producerNode.length; i++) {
-      node.producerIndexOfThis[i] = producerAddLiveConsumer(node.producerNode[i], node, i);
-    }
-  }
-  node.liveConsumerIndexOfThis.push(indexOfThis);
-  return node.liveConsumerNode.push(consumer) - 1;
-}
-function producerRemoveLiveConsumerAtIndex(node, idx) {
-  assertProducerNode(node);
-  if (typeof ngDevMode !== "undefined" && ngDevMode && idx >= node.liveConsumerNode.length) {
-    throw new Error(`Assertion error: active consumer index ${idx} is out of bounds of ${node.liveConsumerNode.length} consumers)`);
-  }
-  if (node.liveConsumerNode.length === 1 && isConsumerNode(node)) {
-    for (let i = 0; i < node.producerNode.length; i++) {
-      producerRemoveLiveConsumerAtIndex(node.producerNode[i], node.producerIndexOfThis[i]);
-    }
-  }
-  const lastIdx = node.liveConsumerNode.length - 1;
-  node.liveConsumerNode[idx] = node.liveConsumerNode[lastIdx];
-  node.liveConsumerIndexOfThis[idx] = node.liveConsumerIndexOfThis[lastIdx];
-  node.liveConsumerNode.length--;
-  node.liveConsumerIndexOfThis.length--;
-  if (idx < node.liveConsumerNode.length) {
-    const idxProducer = node.liveConsumerIndexOfThis[idx];
-    const consumer = node.liveConsumerNode[idx];
-    assertConsumerNode(consumer);
-    consumer.producerIndexOfThis[idxProducer] = idx;
-  }
-}
-function consumerIsLive(node) {
-  return node.consumerIsAlwaysLive || (node?.liveConsumerNode?.length ?? 0) > 0;
-}
-function assertConsumerNode(node) {
-  node.producerNode ??= [];
-  node.producerIndexOfThis ??= [];
-  node.producerLastReadVersion ??= [];
-}
-function assertProducerNode(node) {
-  node.liveConsumerNode ??= [];
-  node.liveConsumerIndexOfThis ??= [];
-}
-function isConsumerNode(node) {
-  return node.producerNode !== void 0;
-}
-function runPostProducerCreatedFn(node) {
-  postProducerCreatedFn?.(node);
-}
-function createComputed(computation, equal) {
-  const node = Object.create(COMPUTED_NODE);
-  node.computation = computation;
-  if (equal !== void 0) {
-    node.equal = equal;
-  }
-  const computed2 = () => {
-    producerUpdateValueVersion(node);
-    producerAccessed(node);
-    if (node.value === ERRORED) {
-      throw node.error;
-    }
-    return node.value;
-  };
-  computed2[SIGNAL] = node;
-  if (typeof ngDevMode !== "undefined" && ngDevMode) {
-    const debugName = node.debugName ? " (" + node.debugName + ")" : "";
-    computed2.toString = () => `[Computed${debugName}: ${node.value}]`;
-  }
-  runPostProducerCreatedFn(node);
-  return computed2;
-}
-var UNSET = Symbol("UNSET");
-var COMPUTING = Symbol("COMPUTING");
-var ERRORED = Symbol("ERRORED");
-var COMPUTED_NODE = (() => {
-  return __spreadProps(__spreadValues({}, REACTIVE_NODE), {
-    value: UNSET,
-    dirty: true,
-    error: null,
-    equal: defaultEquals,
-    kind: "computed",
-    producerMustRecompute(node) {
-      return node.value === UNSET || node.value === COMPUTING;
-    },
-    producerRecomputeValue(node) {
-      if (node.value === COMPUTING) {
-        throw new Error(typeof ngDevMode !== "undefined" && ngDevMode ? "Detected cycle in computations." : "");
-      }
-      const oldValue = node.value;
-      node.value = COMPUTING;
-      const prevConsumer = consumerBeforeComputation(node);
-      let newValue;
-      let wasEqual = false;
-      try {
-        newValue = node.computation();
-        setActiveConsumer(null);
-        wasEqual = oldValue !== UNSET && oldValue !== ERRORED && newValue !== ERRORED && node.equal(oldValue, newValue);
-      } catch (err) {
-        newValue = ERRORED;
-        node.error = err;
-      } finally {
-        consumerAfterComputation(node, prevConsumer);
-      }
-      if (wasEqual) {
-        node.value = oldValue;
-        return;
-      }
-      node.value = newValue;
-      node.version++;
-    }
-  });
-})();
-function defaultThrowError() {
-  throw new Error();
-}
-var throwInvalidWriteToSignalErrorFn = defaultThrowError;
-function throwInvalidWriteToSignalError(node) {
-  throwInvalidWriteToSignalErrorFn(node);
-}
-function setThrowInvalidWriteToSignalError(fn) {
-  throwInvalidWriteToSignalErrorFn = fn;
-}
-var postSignalSetFn = null;
-function createSignal(initialValue, equal) {
-  const node = Object.create(SIGNAL_NODE);
-  node.value = initialValue;
-  if (equal !== void 0) {
-    node.equal = equal;
-  }
-  const getter = () => signalGetFn(node);
-  getter[SIGNAL] = node;
-  if (typeof ngDevMode !== "undefined" && ngDevMode) {
-    const debugName = node.debugName ? " (" + node.debugName + ")" : "";
-    getter.toString = () => `[Signal${debugName}: ${node.value}]`;
-  }
-  runPostProducerCreatedFn(node);
-  const set = (newValue) => signalSetFn(node, newValue);
-  const update = (updateFn) => signalUpdateFn(node, updateFn);
-  return [getter, set, update];
-}
-function signalGetFn(node) {
-  producerAccessed(node);
-  return node.value;
-}
-function signalSetFn(node, newValue) {
-  if (!producerUpdatesAllowed()) {
-    throwInvalidWriteToSignalError(node);
-  }
-  if (!node.equal(node.value, newValue)) {
-    node.value = newValue;
-    signalValueChanged(node);
-  }
-}
-function signalUpdateFn(node, updater) {
-  if (!producerUpdatesAllowed()) {
-    throwInvalidWriteToSignalError(node);
-  }
-  signalSetFn(node, updater(node.value));
-}
-var SIGNAL_NODE = (() => {
-  return __spreadProps(__spreadValues({}, REACTIVE_NODE), {
-    equal: defaultEquals,
-    value: void 0,
-    kind: "signal"
-  });
-})();
-function signalValueChanged(node) {
-  node.version++;
-  producerIncrementEpoch();
-  producerNotifyConsumers(node);
-  postSignalSetFn?.(node);
 }
 
 // node_modules/@angular/core/fesm2022/untracked.mjs
@@ -4073,7 +4116,7 @@ var INJECTOR_DEF_TYPES = new InjectionToken(ngDevMode ? "INJECTOR_DEF_TYPES" : "
 var NullInjector = class {
   get(token, notFoundValue = THROW_IF_NOT_FOUND) {
     if (notFoundValue === THROW_IF_NOT_FOUND) {
-      const error = new NotFoundError2(`NullInjectorError: No provider for ${stringify(token)}!`);
+      const error = new NotFoundError(`NullInjectorError: No provider for ${stringify(token)}!`);
       throw error;
     }
     return notFoundValue;
@@ -6209,6 +6252,20 @@ var ResourceWrappedError = class extends Error {
 };
 
 export {
+  setCurrentInjector,
+  SIGNAL,
+  setActiveConsumer,
+  getActiveConsumer,
+  REACTIVE_NODE,
+  producerAccessed,
+  consumerBeforeComputation,
+  consumerAfterComputation,
+  consumerPollProducersForChange,
+  consumerDestroy,
+  createComputed,
+  setThrowInvalidWriteToSignalError,
+  signalSetFn,
+  SIGNAL_NODE,
   Subscription,
   pipe,
   Observable,
@@ -6229,6 +6286,7 @@ export {
   mergeAll,
   concat,
   defer,
+  forkJoin,
   filter,
   catchError,
   concatMap,
@@ -6243,20 +6301,6 @@ export {
   switchMap,
   takeUntil,
   tap,
-  setCurrentInjector,
-  SIGNAL,
-  setActiveConsumer,
-  getActiveConsumer,
-  REACTIVE_NODE,
-  producerAccessed,
-  consumerBeforeComputation,
-  consumerAfterComputation,
-  consumerPollProducersForChange,
-  consumerDestroy,
-  createComputed,
-  setThrowInvalidWriteToSignalError,
-  signalSetFn,
-  SIGNAL_NODE,
   setAlternateWeakRefImpl,
   XSS_SECURITY_URL,
   RuntimeError,
@@ -6556,4 +6600,4 @@ export {
    * License: MIT
    *)
 */
-//# sourceMappingURL=chunk-G5RZ3YLN.js.map
+//# sourceMappingURL=chunk-ACM6HSXB.js.map
