@@ -34,7 +34,7 @@ namespace PersonCrud.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("People");
+                    b.ToTable("People", (string)null);
 
                     b.HasData(
                         new

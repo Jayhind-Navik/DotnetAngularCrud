@@ -1,3 +1,4 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using PersonCrud.Api.Models;
@@ -44,10 +45,17 @@ public static class PersonEndpoints
         ).WithName("GetPersonById");
 
 
-        app.MapPost("/api/people", async (AppDbContext context, Person person) =>
+        app.MapPost("/api/people", async (IValidator<Person> personValidator, AppDbContext context, Person person) =>
         {
             try
             {
+                var validationResult = await personValidator.ValidateAsync(person);
+
+                if (!validationResult.IsValid)
+                {
+                    return Results.ValidationProblem(validationResult.ToDictionary());
+                }
+
                 context.People.Add(person);
                 await context.SaveChangesAsync();
                 return Results.CreatedAtRoute("GetPersonById", new { id = person.Id }, person); // 201 Created + location of the resource + created data
@@ -59,10 +67,16 @@ public static class PersonEndpoints
         }
         );
 
-        app.MapPut("/api/people/{id:int}", async (int id, AppDbContext context, Person person) =>
+        app.MapPut("/api/people/{id:int}", async (IValidator<Person> personValidator, int id, AppDbContext context, Person person) =>
        {
            try
            {
+               var validationResult = await personValidator.ValidateAsync(person);
+
+               if (!validationResult.IsValid)
+               {
+                   return Results.ValidationProblem(validationResult.ToDictionary());
+               }
                if (id != person.Id)
                {
                    return Results.BadRequest("Id mismatch");
