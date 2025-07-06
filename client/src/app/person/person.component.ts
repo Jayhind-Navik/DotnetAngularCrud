@@ -1,9 +1,21 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { PersonStore } from './person.store';
 
 @Component({
   selector: 'app-person',
   imports: [],
+  providers: [PersonStore],
   template: `
+    
+    @if(loading()){
+      <p>Loading...</p>
+    }
+
+    @if(error()){
+      <p class="text-danger">Something went wrong!</p>
+    }
+
+    <h3>Add/Update Person</h3>
     <form id="form" class="mb-3 d-inline-flex gap-2">
           <div>
              <input type="text" class="form-control" placeholder="First Name">
@@ -24,6 +36,10 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
           </div>
       </form>
 
+      @if(!people() || people().length<1){
+          <h5>No data found</h5>
+      }
+      @else{
       <div class="list">
         <h3>People</h3>
           <table class="table table-bordered">
@@ -36,24 +52,30 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
                 </thead>
 
                 <tbody>
+                  @for(person of people(); track person.id){
                    <tr>
-                      <td>f name </td>
-                      <td>l name</td>
+                      <td>{{person.firstName}} </td>
+                      <td>{{person.lastName}}</td>
                       <td>
                         <div class="d-inline-flex gap-2">
-                        <a href="#" class="btn btn-info">Edit</a>
-                        <a href="#" class="btn btn-danger">Delete</a>
+                        <a (click)="({})" class="btn btn-info">Edit</a>
+                        <a (click)="({})" class="btn btn-danger">Delete</a>
                         </div>
                       </td>
                    </tr>
+                  }
                 </tbody>
           </table>
       </div>
-
+      }
   `,
   styles: ``,
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class PersonComponent {
+  private readonly personStore = inject(PersonStore);
 
+  people = this.personStore.people;
+  loading = this.personStore.loading;
+  error = this.personStore.error;
 }
