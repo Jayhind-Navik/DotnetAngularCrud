@@ -8,8 +8,10 @@ var builder = WebApplication.CreateBuilder(args);
 
 // registering AppDbContext in the DI Container.
 // It registered as Scoped lifetife.
-string connectionString = "Data Source=Person.db";
-builder.Services.AddDbContext<AppDbContext>(option => option.UseSqlite(connectionString));
+//string connectionString = "Data Source=Person.db";
+//builder.Services.AddDbContext<AppDbContext>(option => option.UseSqlite(connectionString));
+
+builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddCors(options =>
 {
